@@ -1,0 +1,247 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  street      String
+  city        String
+  zip         String
+  ico         String
+  dic         String?
+  bankAccount String
+  bankCode    String
+  email       String?
+  phone       String?
+  vatPayer    Boolean  @default(false)
+  vatRate     Float    @default(21)
+  logo        String?
+  fioToken    String?
+  fioLastSync DateTime?
+  invoicePrefix String @default("")
+  invoiceDigits Int    @default(3)
+  invoiceUseYear Boolean @default(true)
+  accountantEmail String?
+  accountantName  String?
+  scanFolder      String?
+  // PDF customizace
+  pdfAccentColor  String  @default("#111827")
+  pdfFooterText   String?
+  pdfTerms        String?
+  // Šablony e-mailů — Handlebars-style placeholders: {{number}}, {{amount}}, {{dueDate}}, {{supplier}}, {{clientName}}, {{daysOverdue}}
+  emailInvoiceSubject  String?
+  emailInvoiceBody     String?
+  emailReminderSubject String?
+  emailReminderBody    String?
+  // API token pro mobilní app / integrace
+  apiToken             String?  @unique
+  // Token pro veřejný iCal feed
+  icalToken            String?  @unique
+  // Legacy Tempo pole — nová data jsou v TempoAccount modelu.
+  tempoApiToken        String?
+  tempoBaseUrl         String?
+  // Cron secret — sdílené tajemství pro externí cron trigger
+  cronSecret           String?
+  // Automatické upomínky po X dnech po splatnosti (0 = vypnuto)
+  autoRemindAfterDays  Int      @default(0)
+  // Výchozí zaokrouhlování totalu na celé Kč
+  roundingEnabled      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoices    Invoice[]
+}
+
+model Client {
+  id         String   @id @default(cuid())
+  name       String
+  street     String
+  city       String
+  zip        String
+  ico        String
+  dic        String?
+  email      String?
+  hourlyRate Float    @default(0)
+  // ARES hlídač — snapshot poslední známé verze
+  aresSnapshot String?   // JSON raw z ARES
+  aresCheckedAt DateTime?
+  aresHasChanges Boolean @default(false)
+  aresChangesSummary String?
+  // Stav plátce DPH (CZ)
+  vatPayerStatus String?   // "active" / "inactive" / "unknown"
+  vatPayerCheckedAt DateTime?
+  // VIES ověření (EU DIČ)
+  viesValid     Boolean?
+  viesCheckedAt DateTime?
+  // Tempo Jira account/project key pro import hodin
+  tempoAccountKey String?
+  createdAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices  Invoice[]
+  templates InvoiceTemplate[]
+  documents Document[]
+  tempoAccounts TempoAccount[]
+}
+
+model Receipt {
+  id            String   @id @default(cuid())
+  // Kdy byla účtenka vystavena (datum nákupu)
+  date          DateTime
+  // Legacy: scan v base64 (staré účtenky). Pro nové se používá scanPath.
+  scan          String   @default("")
+  // Nové: cesta k souboru relativní ke storage (např. "2026/04/cmnxxx.jpg")
+  scanPath      String?
+  mimeType      String   @default("image/jpeg")
+  // Strukturovaná data (z AI nebo ručně vyplněná uživatelem)
+  vendor        String   @default("")
+  vendorIco     String?
+  vendorDic     String?
+  totalAmount   Float    @default(0)
+  vatBase       Float    @default(0)
+  vatAmount     Float    @default(0)
+  vatRate       Float    @default(21)
+  // JSON s položkami: [{name, quantity, unitPrice, vatRate}]
+  items         String   @default("[]")
+  note          String?
+  // Status: pending (čeká na review) / approved (schváleno) / sent (odesláno účetní)
+  status        String   @default("pending")
+  approvedAt    DateTime?
+  sentAt        DateTime?
+  // Raw AI odpověď pro debug
+  aiRaw         String?
+  // JSON pole sub-účtenek dokud uživatel nepotvrdí a případně nerozdělí
+  // tvar: [{vendor, vendorIco, vendorDic, date, totalAmount, vatBase, vatAmount, vatRate, note}]
+  // Pokud je null nebo má jeden prvek, chová se jako běžná jednotlivá účtenka.
+  draftEntries  String?
+  // Tags oddělené čárkou
+  tags          String   @default("")
+  // Kategorie (material / services / software / travel / office / phone / fuel / meals / other)
+  category      String   @default("other")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model TempoAccount {
+  id              String   @id @default(cuid())
+  label           String   // uživatelský popisek — např. "MALFINI Jira", "Alza Tempo"
+  baseUrl         String   @default("https://api.tempo.io/4")
+  apiToken        String
+  // Výchozí klient, na kterého se tento Tempo účet mapuje (volitelné)
+  defaultClientId String?
+  defaultClient   Client?  @relation(fields: [defaultClientId], references: [id], onDelete: SetNull)
+  // Volitelný filtr — Jira project key (např. "MAL"), použije se když je nastavený
+  projectKey      String?
+  // Výchozí hodinová sazba pro tento účet (pokud chceš jinou než u klienta)
+  defaultRate     Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  title       String
+  category    String   @default("contract") // contract / agreement / sla / certificate / other
+  filename    String
+  mimeType    String   @default("application/pdf")
+  storagePath String // relativní cesta v storage/documents/
+  fileSize    Int      @default(0)
+  note        String?
+  tags        String   @default("")
+  // Platnost (pro smlouvy — od/do)
+  validFrom   DateTime?
+  validUntil  DateTime?
+  // Odkaz na klienta (volitelné)
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String   // created / updated / deleted / sent / paid / ...
+  entityType String   // invoice / client / receipt / template / supplier
+  entityId   String
+  summary    String?  // krátký popis změny
+  metadata   String?  // JSON payload pro detail
+  createdAt  DateTime @default(now())
+}
+
+model InvoiceTemplate {
+  id          String    @id @default(cuid())
+  name        String
+  hoursWorked Float
+  hourlyRate  Float
+  note        String?
+  dueDays     Int       @default(14)
+  recurring   Boolean   @default(false)
+  intervalDays Int      @default(30)
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id])
+}
+
+model Invoice {
+  id              String        @id @default(cuid())
+  number          String        @unique
+  issueDate       DateTime
+  dueDate         DateTime
+  // Legacy pole — pro jednoduché faktury "hodiny × sazba". Při více položkách se používá items relation.
+  hoursWorked     Float         @default(0)
+  hourlyRate      Float         @default(0)
+  vatRate         Float         @default(0)
+  vatAmount       Float         @default(0)
+  totalAmount     Float
+  status          String        @default("DRAFT")
+  invoiceType     String        @default("regular")
+  currency        String        @default("CZK")
+  // Kurz ČNB k datu vystavení (pro CZK ekvivalent cizích měn)
+  exchangeRate    Float         @default(1)
+  // Reverse charge / přenesená daňová povinnost (typicky EU)
+  reverseCharge   Boolean       @default(false)
+  // Jazyk faktury pro PDF (cs / en)
+  language        String        @default("cs")
+  // Tags oddělené čárkou
+  tags            String        @default("")
+  // Datum uskutečnění zdanitelného plnění (DPPD). Pokud null, použije se issueDate.
+  taxPointDate    DateTime?
+  // Zaokrouhlení na celé koruny — rozdíl mezi vypočteným a zaokrouhleným totalem
+  roundingAmount  Float         @default(0)
+  note            String?
+  depositInvoiceId String?
+  publicToken     String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  supplierId      String
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+
+  clientId        String
+  client          Client        @relation(fields: [clientId], references: [id])
+
+  items           InvoiceItem[]
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  description String
+  quantity    Float   @default(1)
+  unit        String  @default("h")
+  unitPrice   Float
+  vatRate     Float   @default(0)
+  order       Int     @default(0)
+
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
